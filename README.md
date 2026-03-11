@@ -16,7 +16,7 @@ When this skill is active, Claude will:
 
 **Claude Code**
 ```bash
-/plugin marketplace add your-username/fastapi-backend-ddd
+/plugin marketplace add sparsh2712/fastapi-backend-ddd
 ```
 
 **Manual**
