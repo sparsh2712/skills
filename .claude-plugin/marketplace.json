@@ -1,7 +1,22 @@
 {
   "name": "fastapi-ddd",
-  "description": "Domain-Driven Design implementation guidelines for async Python backends",
-  "version": "1.0.0",
-  "author": "Sparsh",
-  "install": "fastapi-ddd"
+  "owner": {
+    "name": "Sparsh",
+    "email": "sparshbadjate27@gmail.com"
+  },
+  "metadata": {
+    "description": "Domain-Driven Design implementation guidelines for async Python backends",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "fastapi-ddd",
+      "description": "Domain-Driven Design implementation guidelines for async Python backends",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./"
+      ]
+    }
+  ]
 }
