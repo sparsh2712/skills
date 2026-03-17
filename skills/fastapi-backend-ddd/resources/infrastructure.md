@@ -49,6 +49,100 @@ def create_engine(settings: PostgresSettings) -> AsyncEngine:
 
 ---
 
+## Database Schema Definition
+
+Define database tables as SQLAlchemy `Table` objects in the infrastructure layer — one module per bounded context. The domain model never sees these. Repositories use them internally instead of raw SQL strings.
+
+```python
+# infrastructure/schema/ordering.py
+from sqlalchemy import Table, Column, Integer, String, DateTime, ForeignKey, MetaData
+
+metadata = MetaData(schema="ordering")
+
+batches = Table(
+    "batches", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("reference", String, unique=True, nullable=False),
+    Column("sku", String, nullable=False),
+    Column("purchased_quantity", Integer, nullable=False),
+    Column("eta", DateTime, nullable=True),
+)
+
+order_lines = Table(
+    "order_lines", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("order_id", String, nullable=False),
+    Column("sku", String, nullable=False),
+    Column("quantity", Integer, nullable=False),
+)
+
+allocations = Table(
+    "allocations", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("batch_id", Integer, ForeignKey("ordering.batches.id"), nullable=False),
+    Column("orderline_id", Integer, ForeignKey("ordering.order_lines.id"), nullable=False),
+)
+```
+
+Each bounded context gets its own schema module and its own Postgres schema prefix. This keeps contexts isolated at the database level.
+
+```
+infrastructure/
+  schema/
+    ordering.py       # Tables for the ordering context
+    fulfillment.py    # Tables for the fulfillment context
+```
+
+### Using Table objects in repositories
+
+Repositories import the `Table` objects and use SQLAlchemy's expression API for simple CRUD — get by id, insert, update. Column names are checked at import time — a rename in the schema definition immediately breaks any repository referencing the old name. For complex queries involving joins or aggregations, use explicit SQL with `text()` — the intent is clearer and easier to optimize.
+
+```python
+# infrastructure/repositories/ordering/batch_repository.py
+from sqlalchemy import select
+from infrastructure.schema.ordering import batches, order_lines, allocations
+
+class BatchRepository(AbstractBatchRepository):
+    def __init__(self, conn: AsyncConnection) -> None:
+        super().__init__()
+        self.conn = conn
+
+    async def _get(self, reference: str) -> Batch | None:
+        result = await self.conn.execute(
+            select(batches).where(batches.c.reference == reference)
+        )
+        row = result.mappings().one_or_none()
+        if row is None:
+            return None
+        allocs = await self._fetch_allocations(reference)
+        return self._to_domain(row, allocs)
+
+    async def _add(self, batch: Batch) -> None:
+        await self.conn.execute(
+            batches.insert().values(
+                reference=batch.reference,
+                sku=batch.sku,
+                purchased_quantity=batch._purchased_quantity,
+                eta=batch.eta,
+            )
+        )
+
+    async def _save(self, batch: Batch) -> None:
+        await self.conn.execute(
+            batches.update()
+            .where(batches.c.reference == batch.reference)
+            .values(purchased_quantity=batch._purchased_quantity, eta=batch.eta)
+        )
+```
+
+The `_to_domain` method stays the same — it still manually constructs a domain object from the row. The domain model is unchanged.
+
+### Why Table objects instead of ORM models
+
+SQLAlchemy ORM models (`class Batch(Base)`) merge schema definition with Python class behavior. In DDD, the domain model is a separate pure-Python class — you don't want SQLAlchemy's `Base`, `Column`, or session machinery in it. `Table` objects define the schema without creating classes, so the domain stays clean and the infrastructure owns the mapping.
+
+---
+
 ## Email
 
 ```python

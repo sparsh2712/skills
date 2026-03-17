@@ -45,14 +45,14 @@ The concrete UoW is constructed here — the service layer only ever receives `A
 # entrypoints/dependencies.py
 from fastapi import Request, Depends
 from sqlalchemy.ext.asyncio import AsyncEngine
-from unit_of_work.postgres import PostgresUnitOfWork
+from unit_of_work.concrete import UnitOfWork
 from unit_of_work.abstract import AbstractUnitOfWork
 
 def get_engine(request: Request) -> AsyncEngine:
     return request.app.state.engine
 
 def get_uow(engine: AsyncEngine = Depends(get_engine)) -> AbstractUnitOfWork:
-    return PostgresUnitOfWork(engine=engine)
+    return UnitOfWork(engine=engine)
 ```
 
 ---

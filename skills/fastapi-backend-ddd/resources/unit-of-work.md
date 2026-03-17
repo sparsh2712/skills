@@ -45,19 +45,19 @@ class AbstractUnitOfWork(abc.ABC):
 ## Concrete Implementation
 
 ```python
-# unit_of_work/postgres.py
+# unit_of_work/concrete.py
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncConnection
-from infrastructure.repositories.ordering.batch_repository import PostgresBatchRepository
+from infrastructure.repositories.ordering.batch_repository import BatchRepository
 from unit_of_work.abstract import AbstractUnitOfWork
 
-class PostgresUnitOfWork(AbstractUnitOfWork):
+class UnitOfWork(AbstractUnitOfWork):
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
-    async def __aenter__(self) -> "PostgresUnitOfWork":
+    async def __aenter__(self) -> "UnitOfWork":
         self._conn: AsyncConnection = await self._engine.connect()
         await self._conn.begin()
-        self.batches = PostgresBatchRepository(self._conn)
+        self.batches = BatchRepository(self._conn)
         return await super().__aenter__()
 
     async def __aexit__(self, *args) -> None:
@@ -123,20 +123,20 @@ async def allocate(order_id: str, sku: str, quantity: int, uow: AbstractUnitOfWo
 
 ## Dependency Injection in FastAPI
 
-The concrete UoW is constructed once per request in the `Depends()` factory. This is the only place `PostgresUnitOfWork` is instantiated in production:
+The concrete UoW is constructed once per request in the `Depends()` factory. This is the only place `UnitOfWork` is instantiated in production:
 
 ```python
 # entrypoints/dependencies.py
 from fastapi import Request, Depends
 from sqlalchemy.ext.asyncio import AsyncEngine
-from unit_of_work.postgres import PostgresUnitOfWork
+from unit_of_work.concrete import UnitOfWork
 from unit_of_work.abstract import AbstractUnitOfWork
 
 def get_engine(request: Request) -> AsyncEngine:
     return request.app.state.engine
 
 def get_uow(engine: AsyncEngine = Depends(get_engine)) -> AbstractUnitOfWork:
-    return PostgresUnitOfWork(engine=engine)
+    return UnitOfWork(engine=engine)
 ```
 
 The router passes it straight into the service call:

@@ -1,6 +1,6 @@
 ---
 name: fastapi-backend-ddd
-description: Domain-Driven Design implementation guidelines for async Python backends. Covers the 4-layer architecture (Infrastructure → Domain → Service → Interaction), the Repository pattern, Unit of Work, Aggregates, Value Objects, Entities, Bounded Contexts, and Ubiquitous Language. Use this skill whenever the user is building or designing a backend with DDD principles — domain models, service layer, repositories, unit of work, aggregates, value objects, domain events, or bounded contexts in Python.
+description: Domain-Driven Design implementation guidelines for async Python backends. Covers the 4-layer architecture (Infrastructure → Domain → Service → Interaction), the Repository pattern, Unit of Work, Aggregates, Value Objects, Entities, Bounded Contexts, and Ubiquitous Language. Use this skill whenever the user is building or designing a Python backend — whether they explicitly mention DDD or not. Trigger on any of these signals: structuring a FastAPI project, separating business logic from database code, designing domain models, defining service layers, writing repositories, implementing unit of work, building aggregates or value objects, working with domain events, defining bounded contexts, asking how to organize backend code, refactoring a messy service into clean layers, or building any non-trivial backend where business rules matter. If the user says things like "build me a backend for X", "how should I structure this API", or "I want clean architecture for my FastAPI app" — use this skill.
 ---
 
 # Domain-Driven Design — Async Python Backend
@@ -137,6 +137,7 @@ config.py
 - Service Layer → resources/service-layer.md
 - Interaction Layer → resources/interaction-layer.md
 - Bounded Context & Ubiquitous Language → resources/bounded-context.md
+- Testing → resources/testing.md
 - Complete Example → resources/complete-example.md
 
 ---

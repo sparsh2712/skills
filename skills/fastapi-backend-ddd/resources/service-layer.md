@@ -40,7 +40,7 @@ async def create_batch(
     uow: AbstractUnitOfWork,
 ) -> str:
     async with uow:
-        uow.batches.add(Batch(reference=reference, sku=sku, purchased_quantity=quantity, eta=eta))
+        await uow.batches.add(Batch(reference=reference, sku=sku, purchased_quantity=quantity, eta=eta))
         return reference
 
 async def allocate(

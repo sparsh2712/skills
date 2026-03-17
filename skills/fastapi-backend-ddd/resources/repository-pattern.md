@@ -30,9 +30,9 @@ class AbstractBatchRepository(abc.ABC):
         self.seen.update(batches)
         return batches
 
-    def add(self, batch: Batch) -> None:
+    async def add(self, batch: Batch) -> None:
         self.seen.add(batch)
-        self._add(batch)
+        await self._add(batch)
 
     async def save(self, batch: Batch) -> None:
         self.seen.add(batch)
@@ -45,7 +45,7 @@ class AbstractBatchRepository(abc.ABC):
     async def _get_by_sku(self, sku: str) -> list[Batch]: ...
 
     @abc.abstractmethod
-    def _add(self, batch: Batch) -> None: ...
+    async def _add(self, batch: Batch) -> None: ...
 
     @abc.abstractmethod
     async def _save(self, batch: Batch) -> None: ...
@@ -57,34 +57,33 @@ The `seen` set tracks every aggregate the repository has touched during a unit o
 
 ## Concrete Implementation
 
-Write SQL. Construct domain objects manually from rows. The `_to_domain` method is the explicit translation boundary between the database schema and the domain model.
+Simple CRUD operations (get by id, insert, update) use SQLAlchemy `Table` objects from `infrastructure/schema/`. Complex queries involving joins use explicit SQL — the intent is clearer and easier to optimize.
+
+The `_to_domain` method is the explicit translation boundary between the database schema and the domain model.
 
 ```python
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlalchemy import text
+from sqlalchemy import select, text
 from domain.ordering.model import Batch, OrderLine
+from infrastructure.schema.ordering import batches, order_lines, allocations
 
-class PostgresBatchRepository(AbstractBatchRepository):
+class BatchRepository(AbstractBatchRepository):
     def __init__(self, conn: AsyncConnection) -> None:
         super().__init__()
         self.conn = conn
 
     async def _get(self, reference: str) -> Batch | None:
         result = await self.conn.execute(
-            text("""
-                SELECT reference, sku, purchased_quantity, eta
-                FROM ordering.batches
-                WHERE reference = :reference
-            """),
-            {"reference": reference},
+            select(batches).where(batches.c.reference == reference)
         )
         row = result.mappings().one_or_none()
         if row is None:
             return None
-        allocations = await self._fetch_allocations(reference)
-        return self._to_domain(row, allocations)
+        allocs = await self._fetch_allocations(reference)
+        return self._to_domain(row, allocs)
 
     async def _fetch_allocations(self, reference: str) -> set[OrderLine]:
+        # Joins stay as explicit SQL — clearer intent, easier to optimize
         result = await self.conn.execute(
             text("""
                 SELECT ol.order_id, ol.sku, ol.quantity
@@ -110,45 +109,32 @@ class PostgresBatchRepository(AbstractBatchRepository):
         batch._allocations = allocations
         return batch
 
-    def _add(self, batch: Batch) -> None:
-        self.conn.execute(
-            text("""
-                INSERT INTO ordering.batches (reference, sku, purchased_quantity, eta)
-                VALUES (:reference, :sku, :purchased_quantity, :eta)
-            """),
-            {
-                "reference": batch.reference,
-                "sku": batch.sku,
-                "purchased_quantity": batch._purchased_quantity,
-                "eta": batch.eta,
-            },
+    async def _add(self, batch: Batch) -> None:
+        await self.conn.execute(
+            batches.insert().values(
+                reference=batch.reference,
+                sku=batch.sku,
+                purchased_quantity=batch._purchased_quantity,
+                eta=batch.eta,
+            )
         )
 
     async def _save(self, batch: Batch) -> None:
         await self.conn.execute(
-            text("""
-                UPDATE ordering.batches
-                SET purchased_quantity = :qty, eta = :eta
-                WHERE reference = :reference
-            """),
-            {"qty": batch._purchased_quantity, "eta": batch.eta, "reference": batch.reference},
+            batches.update()
+            .where(batches.c.reference == batch.reference)
+            .values(purchased_quantity=batch._purchased_quantity, eta=batch.eta)
         )
 
     async def _get_by_sku(self, sku: str) -> list[Batch]:
         result = await self.conn.execute(
-            text("""
-                SELECT reference, sku, purchased_quantity, eta
-                FROM ordering.batches
-                WHERE sku = :sku
-                ORDER BY eta NULLS FIRST
-            """),
-            {"sku": sku},
+            select(batches).where(batches.c.sku == sku).order_by(batches.c.eta.asc().nulls_first())
         )
-        batches = []
+        batch_list = []
         for row in result.mappings():
-            allocations = await self._fetch_allocations(row["reference"])
-            batches.append(self._to_domain(row, allocations))
-        return batches
+            allocs = await self._fetch_allocations(row["reference"])
+            batch_list.append(self._to_domain(row, allocs))
+        return batch_list
 ```
 
 ---
@@ -167,7 +153,7 @@ class FakeBatchRepository(AbstractBatchRepository):
     async def _get_by_sku(self, sku: str) -> list[Batch]:
         return [b for b in self._store.values() if b.sku == sku]
 
-    def _add(self, batch: Batch) -> None:
+    async def _add(self, batch: Batch) -> None:
         self._store[batch.reference] = batch
 
     async def _save(self, batch: Batch) -> None:
@@ -187,6 +173,8 @@ No database. No migrations. Unit tests run instantly.
 **Methods use domain language.** Not `find_by_id` everywhere — use `get(reference)`, `get_by_sku(sku)`, `list_available_for(sku, quantity)`. The interface reads like domain expert vocabulary.
 
 **Return domain objects.** Never raw dicts, never database row proxies. The `_to_domain` method is the explicit, deliberate translation between the database schema and the domain model.
+
+**Table objects for simple CRUD, explicit SQL for complex queries.** Use SQLAlchemy `Table` objects (defined in `infrastructure/schema/`) for get-by-id, insert, and update — you get import-time column checking and a single source of truth for the schema. For queries involving joins, aggregations, or anything non-trivial, use explicit SQL with `text()` — the intent is clearer and easier to optimize. See `resources/infrastructure.md` for the schema definition pattern.
 
 ---
 
