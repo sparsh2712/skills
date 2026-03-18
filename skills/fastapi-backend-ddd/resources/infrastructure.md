@@ -143,6 +143,40 @@ SQLAlchemy ORM models (`class Batch(Base)`) merge schema definition with Python 
 
 ---
 
+## Event Stream Connection
+
+The event stream broker (NATS JetStream, Kafka, Redis Streams, etc.) follows the same pattern as the database: settings class, connection factory, lifecycle managed in the app lifespan. The publisher and subscriber are constructed once at startup.
+
+```python
+# infrastructure/streaming/settings.py
+from pydantic_settings import BaseSettings
+
+class StreamSettings(BaseSettings):
+    STREAM_URL: str = "nats://localhost:4222"
+    STREAM_DURABLE_PREFIX: str = ""
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+```
+
+```python
+# infrastructure/streaming/connection.py
+async def connect_stream(settings: StreamSettings):
+    """Broker-specific connection logic. Returns whatever the concrete publisher/subscriber needs."""
+    # For NATS JetStream:
+    #   nc = await nats.connect(settings.STREAM_URL)
+    #   js = nc.jetstream()
+    #   return nc, js
+    #
+    # For Kafka:
+    #   producer = AIOKafkaProducer(bootstrap_servers=settings.STREAM_URL)
+    #   return producer
+    ...
+```
+
+The AbstractEventPublisher, AbstractEventSubscriber, and their fakes are defined in resources/event-streaming.md. The concrete implementations are broker-specific.
+
+---
+
 ## Email
 
 ```python
@@ -203,14 +237,27 @@ Infrastructure clients are created once at startup and stored on application sta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from infrastructure.database.connection import create_engine
+from infrastructure.streaming.connection import connect_stream
+from infrastructure.streaming.publisher import EventPublisher
+from infrastructure.streaming.subscriber import EventSubscriber
 from infrastructure.email.factory import get_email_client
 from config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.engine = create_engine(settings.postgres)
+    app.state.stream_conn = await connect_stream(settings.streaming)
+    app.state.publisher = EventPublisher(app.state.stream_conn)
+    app.state.subscriber = EventSubscriber(app.state.stream_conn)
     app.state.email = get_email_client(settings.email)
+
+    # Register modules and start consuming events
+    # (see resources/module-structure.md for module registration)
+    await app.state.subscriber.start()
+
     yield
+
+    await app.state.subscriber.stop()
     await app.state.engine.dispose()
 
 app = FastAPI(lifespan=lifespan)

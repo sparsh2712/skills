@@ -40,13 +40,14 @@ description: Domain-Driven Design implementation guidelines for async Python bac
 
 **Layer rules:**
 - Interaction calls Service — never Infrastructure directly
-- Service calls Domain + Infrastructure (repositories, gateways)
+- Service calls Domain + Infrastructure (repositories, gateways, event publisher)
 - Domain calls nothing — pure Python
 - Infrastructure calls nothing above it
+- Events cross module boundaries only through the event stream — never through direct imports
 
 ---
 
-## Four Core Tactical DDD Patterns
+## Five Core Tactical DDD Patterns
 
 | Pattern | Role |
 |---|---|
@@ -54,6 +55,7 @@ description: Domain-Driven Design implementation guidelines for async Python bac
 | **Repository** | Hides persistence behind a collection interface. Abstract base + concrete implementation + fake for tests. |
 | **Unit of Work** | Wraps a database transaction, owns repositories, is the only thing that commits. |
 | **Service Layer** | Use case orchestrators. Accept primitives + UoW, call domain, return primitives. |
+| **Event Streaming** | Publishes domain events to a persistent stream for cross-module communication. Abstract publisher + concrete + fake. |
 
 ---
 
@@ -94,6 +96,38 @@ src/
 config.py
 ```
 
+### Multi-Module Structure (Sellable Units)
+
+For products where each bounded context is an independently deployable, sellable module:
+
+```
+src/
+  modules/
+    {module}/
+      domain/            # Same structure as above
+      service/
+      infrastructure/
+      handlers/          # Event handlers for events FROM other modules
+      entrypoints/       # Routers and schemas for this module
+      __init__.py        # register(app, publisher, subscriber, uow_factory)
+
+  shared/
+    events/
+      {context}_events.py  # Shared event schemas — the inter-module contract
+
+  infrastructure/
+    streaming/
+      publisher.py       # AbstractEventPublisher + concrete + fake
+      subscriber.py      # AbstractEventSubscriber + concrete + fake
+      serialization.py   # Event serialization/deserialization
+
+  unit_of_work/
+  entrypoints/
+  config.py              # ENABLED_MODULES list
+```
+
+See resources/module-structure.md for the full pattern.
+
 ---
 
 ## Quick Start Checklists
@@ -114,8 +148,17 @@ config.py
 - [ ] Define domain exceptions in `domain/{context}/exceptions.py`
 - [ ] Write repository — Abstract base + concrete implementation + fake
 - [ ] Write service functions — accept UoW and primitives, return primitives
+- [ ] Publish events after commit if other modules need to react
 - [ ] Write request/response schemas
 - [ ] Write thin router
+
+### New Module (Sellable Unit)
+- [ ] Define module boundary — one bounded context per module
+- [ ] Create `modules/{name}/domain/events.py` for published events
+- [ ] Add shared event schemas to `shared/events/{name}_events.py`
+- [ ] Create `modules/{name}/handlers/external_events.py` for consumed events
+- [ ] Create `modules/{name}/__init__.py` with `register(app, publisher, subscriber, uow_factory)`
+- [ ] Add module name to `ENABLED_MODULES` config
 
 ### New API Endpoint
 - [ ] Router validates request via schema
@@ -137,6 +180,8 @@ config.py
 - Service Layer → resources/service-layer.md
 - Interaction Layer → resources/interaction-layer.md
 - Bounded Context & Ubiquitous Language → resources/bounded-context.md
+- Event Streaming → resources/event-streaming.md
+- Module Structure (Sellable Units) → resources/module-structure.md
 - Testing → resources/testing.md
 - Complete Example → resources/complete-example.md
 
@@ -149,5 +194,7 @@ config.py
 3. Repositories operate on Aggregate roots only — no repository for internal entities
 4. Ubiquitous Language in code — names are the documentation
 5. Flat over DRY — repetitive but readable beats abstract and compact
-6. TDD — FakeUoW + FakeRepository enable fast unit tests without a database
+6. TDD — FakeUoW + FakeRepository + FakeEventPublisher enable fast unit tests without infrastructure
 7. The concrete UoW is constructed at the interaction layer boundary — service layer only ever sees the abstract interface
+8. Events are published only after successful commit — no events on rollback
+9. Modules communicate through events, never through shared domain objects

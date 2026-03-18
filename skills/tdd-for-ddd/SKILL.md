@@ -28,6 +28,8 @@ Before writing anything, be clear on what behavior you're implementing. If the r
 Identify which layer owns the behavior:
 - **Domain layer** — business rules, invariants, value object validation, aggregate state transitions
 - **Service layer** — use case orchestration, coordinating domain objects through a UoW
+- **Event publishing** — service function publishes events after commit for cross-module communication
+- **Event handling** — handler in a subscribing module reacts to events from another module
 
 ### Step 2: Propose the Test
 
@@ -80,12 +82,15 @@ Go back to Step 2 with the next behavior. Each cycle adds one behavior to the sy
 **In the TDD loop (run during feature development):**
 - Domain unit tests — entities, value objects, aggregates, domain services
 - Service layer tests — use case orchestration with fakes
+- Event publishing tests — verify service functions publish the right events after commit (using FakeEventPublisher)
+- Event handler tests — verify handlers in subscribing modules react correctly (using FakeUoW)
 
 **Out of the TDD loop (run in dev/staging environment):**
 - Integration tests — repository methods against a real database
 - E2E tests — API endpoints through TestClient
+- Stream integration tests — pub/sub round-trip through a real broker
 
-The TDD workflow only drives domain and service layer tests. Integration and E2E tests are a separate concern, run separately, and are not part of the RED-GREEN-REFACTOR cycle during feature development.
+The TDD workflow drives domain, service, and event tests. Integration, E2E, and stream tests are a separate concern, run separately, and are not part of the RED-GREEN-REFACTOR cycle during feature development.
 
 ---
 
@@ -165,5 +170,6 @@ pytest
 
 - RED-GREEN-REFACTOR Workflow → resources/red-green-refactor.md
 - Designing Fakes → resources/designing-fakes.md
+- TDD for Event Streaming → resources/testing-events.md
 - Anti-Patterns and Scam Test Prevention → resources/anti-patterns.md
 - Worked Example: TDD for a DDD Feature → resources/worked-example.md

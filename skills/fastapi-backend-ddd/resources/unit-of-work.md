@@ -38,6 +38,20 @@ class AbstractUnitOfWork(abc.ABC):
 
     @abc.abstractmethod
     async def rollback(self) -> None: ...
+
+    def collect_new_events(self):
+        """Drain events from all aggregates touched during this unit of work."""
+        for repo in self._repositories():
+            for aggregate in repo.seen:
+                while aggregate.events:
+                    yield aggregate.events.pop(0)
+
+    def _repositories(self):
+        """Yield all repositories owned by this UoW."""
+        for attr_name in vars(self):
+            attr = getattr(self, attr_name)
+            if hasattr(attr, "seen"):
+                yield attr
 ```
 
 ---
@@ -162,3 +176,4 @@ In tests, `FakeUnitOfWork` is constructed directly in the test body and passed t
 - **One UoW per request** — never shared across requests
 - **Always use as context manager** — `async with uow:` is the only correct usage
 - **Concrete UoW constructed at interaction layer** — service layer only ever sees `AbstractUnitOfWork`
+- **`collect_new_events()` drains events after commit** — the service function calls this after the `async with uow:` block exits to collect domain events for publishing (see resources/event-streaming.md)

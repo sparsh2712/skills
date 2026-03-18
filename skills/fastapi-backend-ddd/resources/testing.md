@@ -185,6 +185,79 @@ async def test_deallocate_raises_when_not_found():
 
 ---
 
+## Event Publishing Tests
+
+When a service function publishes events after commit, use `FakeEventPublisher` to verify the right events were published:
+
+```python
+# tests/unit/service/test_allocation_events.py
+import pytest
+from service.ordering.allocation import allocate, create_batch
+from unit_of_work.fake import FakeUnitOfWork
+from infrastructure.streaming.publisher import FakeEventPublisher
+from shared.events.ordering_events import Allocated
+
+async def test_allocate_publishes_allocated_event():
+    uow = FakeUnitOfWork()
+    publisher = FakeEventPublisher()
+    await create_batch("b1", "CHAIR", 100, None, uow)
+
+    await allocate("o1", "CHAIR", 10, uow, publisher)
+
+    assert len(publisher.published_events) == 1
+    event = publisher.published_events[0]
+    assert isinstance(event, Allocated)
+    assert event.batchref == "b1"
+    assert event.sku == "CHAIR"
+    assert event.quantity == 10
+
+async def test_no_events_published_on_failure():
+    uow = FakeUnitOfWork()
+    publisher = FakeEventPublisher()
+    await create_batch("b1", "CHAIR", 1, None, uow)
+
+    with pytest.raises(Exception):
+        await allocate("o1", "CHAIR", 100, uow, publisher)
+
+    assert len(publisher.published_events) == 0
+```
+
+**What to test:**
+- The correct event type is published after a successful operation
+- Event fields contain the expected data
+- No events are published when the operation fails
+
+---
+
+## Event Handler Tests
+
+Event handlers in subscribing modules are tested the same way as service functions — with FakeUoW:
+
+```python
+# tests/unit/handlers/test_fulfillment_handlers.py
+from modules.fulfillment.handlers.external_events import handle_allocated
+from shared.events.ordering_events import Allocated
+from unit_of_work.fake import FakeUnitOfWork
+
+async def test_handle_allocated_creates_pick_list():
+    uow = FakeUnitOfWork()
+    event = Allocated(order_id="o1", batchref="b1", sku="CHAIR", quantity=10)
+
+    await handle_allocated(event, uow)
+
+    assert uow.committed is True
+    pick = await uow.pick_lists.get("o1")
+    assert pick is not None
+    assert pick.sku == "CHAIR"
+```
+
+**What to test:**
+- Handler creates the right domain objects from the event data
+- Handler commits on success
+- Handler raises the right exception for invalid/duplicate events
+
+---
+
 ## Integration Tests
 
 Integration tests verify that the real database, real repositories, and real UoW work together. They are slow and few. Use them to prove infrastructure wiring, not business logic.
@@ -238,14 +311,17 @@ async def test_repository_tracks_allocations(engine: AsyncEngine):
 tests/
   unit/
     domain/
-      test_batch.py          # Aggregate invariants, value objects, events
-      test_order.py           # If you have an Order aggregate
+      test_batch.py              # Aggregate invariants, value objects, events
+      test_order.py               # If you have an Order aggregate
     service/
-      test_allocation.py      # Use case tests with FakeUoW
+      test_allocation.py          # Use case tests with FakeUoW
+      test_allocation_events.py   # Event publishing tests with FakeEventPublisher
+    handlers/
+      test_fulfillment_handlers.py  # Event handler tests
   integration/
-    test_repository.py        # Real DB round-trip tests
-    conftest.py               # Database fixtures, test engine setup
-  conftest.py                 # Shared fixtures, pytest-asyncio config
+    test_repository.py            # Real DB round-trip tests
+    conftest.py                   # Database fixtures, test engine setup
+  conftest.py                     # Shared fixtures, pytest-asyncio config
 ```
 
 ---

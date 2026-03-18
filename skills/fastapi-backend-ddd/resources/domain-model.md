@@ -178,6 +178,10 @@ class OrderConfirmed:
 
 Aggregates append events to `self.events`. What consumes those events is determined at the infrastructure boundary — the domain never knows.
 
+After the UoW commits, `uow.collect_new_events()` drains these events from all touched aggregates. The service function then publishes them to the event stream for cross-module communication. See resources/event-streaming.md for the full pattern.
+
+In multi-module systems, event dataclasses used for cross-module communication live in `shared/events/` as the inter-module contract. A module's `domain/events.py` can re-export from there. See resources/module-structure.md.
+
 ---
 
 ## Domain Commands

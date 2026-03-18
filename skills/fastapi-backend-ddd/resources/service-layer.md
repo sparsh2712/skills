@@ -163,3 +163,63 @@ async def test_commits_on_successful_allocation():
 | Returning simple dataclasses or primitives | HTTP status codes |
 | Raising domain exceptions | Web framework imports |
 | Calling `uow.{repo}.save()` | Domain logic |
+| Publishing events after commit | Subscribing to events (that's module registration) |
+
+---
+
+## Publishing Events After Commit
+
+When a module needs to notify other modules about what happened, the service function publishes events after the UoW commits successfully:
+
+```python
+# service/ordering/allocation.py
+from infrastructure.streaming.publisher import AbstractEventPublisher
+
+async def allocate(
+    order_id: str,
+    sku: str,
+    quantity: int,
+    uow: AbstractUnitOfWork,
+    publisher: AbstractEventPublisher,
+) -> AllocationResult:
+    async with uow:
+        batches = await uow.batches.get_by_sku(sku)
+        if not batches:
+            raise InvalidSkuError(f"Invalid sku {sku}")
+        line = OrderLine(order_id=order_id, sku=sku, quantity=quantity)
+        batchref = allocate_to_earliest_batch(batches, line)
+        result = AllocationResult(batchref=batchref, sku=sku)
+
+    # UoW committed — publish events for other modules
+    for event in uow.collect_new_events():
+        await publisher.publish(event)
+
+    return result
+```
+
+The publisher is injected the same way as UoW — through dependency injection. The service function never knows what broker is behind it. In tests, use `FakeEventPublisher` and assert on `publisher.published_events`.
+
+If the UoW rolls back (domain exception), the code after `async with uow:` never runs. No events are published for failed operations.
+
+---
+
+## Event Handlers (Cross-Module)
+
+Event handlers react to events from other modules. They live in `modules/{name}/handlers/` and receive an event plus their own UoW — an independent transaction.
+
+```python
+# modules/fulfillment/handlers/external_events.py
+from shared.events.ordering_events import Allocated
+from unit_of_work.abstract import AbstractUnitOfWork
+
+async def handle_allocated(event: Allocated, uow: AbstractUnitOfWork) -> None:
+    async with uow:
+        pick = PickList(
+            order_id=event.order_id,
+            sku=event.sku,
+            quantity=event.quantity,
+        )
+        await uow.pick_lists.add(pick)
+```
+
+Event handlers follow the same rules as service functions: accept primitives (the event dataclass) and a UoW, delegate to domain objects, let the UoW commit. See resources/event-streaming.md for the full pattern and resources/module-structure.md for how handlers are registered.

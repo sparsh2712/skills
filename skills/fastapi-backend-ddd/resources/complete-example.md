@@ -35,6 +35,14 @@ src/
   service/ordering/
     allocation.py     # create_batch, allocate, deallocate
 
+  shared/events/
+    ordering_events.py  # Allocated, Deallocated — shared event schemas
+
+  infrastructure/streaming/
+    publisher.py      # AbstractEventPublisher, EventPublisher, FakeEventPublisher
+    subscriber.py     # AbstractEventSubscriber, EventSubscriber, FakeEventSubscriber
+    serialization.py  # serialize_event, deserialize_event, register_event
+
   entrypoints/
     app.py            # FastAPI app, lifespan
     dependencies.py   # get_engine, get_uow
@@ -87,7 +95,26 @@ async def allocate(order_id: str, sku: str, quantity: int, uow: AbstractUnitOfWo
         return AllocationResult(batchref=batchref, sku=sku)
 ```
 
-### 5. Interaction Layer (see resources/interaction-layer.md)
+### 5. Event Streaming (see resources/event-streaming.md)
+
+After the UoW commits, the service function collects domain events and publishes them to the event stream. Other modules subscribe to these events and react independently.
+
+```python
+async def allocate(order_id, sku, quantity, uow, publisher) -> AllocationResult:
+    async with uow:
+        # ... domain logic ...
+        result = AllocationResult(batchref=batchref, sku=sku)
+
+    # UoW committed — publish events for other modules
+    for event in uow.collect_new_events():
+        await publisher.publish(event)
+
+    return result
+```
+
+The publisher is injected via dependency injection. In tests, `FakeEventPublisher` records events for assertions. In production, the concrete publisher sends events to the stream broker.
+
+### 6. Interaction Layer (see resources/interaction-layer.md)
 
 The router is thin — validates via Pydantic schema, calls the service function, returns a response. The concrete UoW is injected via `Depends(get_uow)`.
 
@@ -103,9 +130,9 @@ async def allocate(
 
 Domain exceptions become HTTP errors in `ErrorHandlerMiddleware` — the only place that maps domain exceptions to status codes.
 
-### 6. Tests (see resources/testing.md)
+### 7. Tests (see resources/testing.md)
 
-Domain tests hit `Batch` and `OrderLine` directly — pure Python, no fakes needed. Service tests use `FakeUnitOfWork` to verify orchestration and commit behavior. Integration tests use the real database to verify repository round-trips.
+Domain tests hit `Batch` and `OrderLine` directly — pure Python, no fakes needed. Service tests use `FakeUnitOfWork` and `FakeEventPublisher` to verify orchestration, commit behavior, and event publishing. Integration tests use the real database to verify repository round-trips.
 
 ---
 
@@ -115,7 +142,7 @@ Domain tests hit `Batch` and `OrderLine` directly — pure Python, no fakes need
 HTTP POST /allocations {order_id, sku, quantity}
   │
   ├─ Router: validates via AllocateRequest schema
-  ├─ Router: calls allocation_service.allocate(order_id, sku, qty, uow)
+  ├─ Router: calls allocation_service.allocate(order_id, sku, qty, uow, publisher)
   │    │
   │    ├─ Service: async with uow  (opens transaction)
   │    ├─ Service: batches = await uow.batches.get_by_sku(sku)
@@ -125,10 +152,15 @@ HTTP POST /allocations {order_id, sku, quantity}
   │    │    ├─ Domain service: sorts batches, finds first with capacity
   │    │    └─ Domain: batch.allocate(line) — enforces invariant, appends event
   │    │
-  │    ├─ Service: returns AllocationResult(batchref, sku)
-  │    └─ UoW: auto-commits on clean exit
+  │    ├─ UoW: auto-commits on clean exit
+  │    ├─ Service: collects events via uow.collect_new_events()
+  │    ├─ Service: publishes Allocated event to stream via publisher
+  │    └─ Service: returns AllocationResult(batchref, sku)
   │
-  └─ Router: returns AllocateResponse {batchref}
+  ├─ Router: returns AllocateResponse {batchref}
+  │
+  └─ (Async) Subscribers in other modules receive Allocated event
+       └─ fulfillment.handle_allocated → creates PickList in its own UoW
 ```
 
 ---
@@ -142,3 +174,6 @@ HTTP POST /allocations {order_id, sku, quantity}
 | Domain exceptions mapped to HTTP in middleware | Interaction layer | Domain never imports web framework |
 | `seen` set on repository | Infrastructure | Lets UoW inspect which aggregates were touched |
 | Pydantic schemas separate from domain | Interaction layer | API contract can evolve independently from domain |
+| Events published after UoW commit | Service layer | No events on rollback — other modules only hear about things that actually happened |
+| Event handlers get their own UoW | Module handlers | Independent transactions — handler failure doesn't affect the publisher |
+| Publisher injected like UoW | Dependencies | Service functions never know what broker is behind the publisher |

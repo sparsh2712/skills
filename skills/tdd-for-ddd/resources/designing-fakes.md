@@ -222,3 +222,50 @@ Create a fake whenever you introduce a new abstract interface that the service l
 3. Implement `FakeXClient` (in-memory recorder) — in the same file
 4. Pass the client to service functions as a parameter
 5. In tests, create `FakeXClient()` and pass it in
+
+---
+
+## Fake Event Publisher
+
+For cross-module event streaming, the `FakeEventPublisher` records every published event:
+
+```python
+# infrastructure/streaming/publisher.py
+class AbstractEventPublisher(abc.ABC):
+    @abc.abstractmethod
+    async def publish(self, event, subject: str | None = None) -> None: ...
+
+
+class EventPublisher(AbstractEventPublisher):
+    """Concrete — publishes to the stream broker."""
+    def __init__(self, connection) -> None:
+        self._connection = connection
+
+    async def publish(self, event, subject=None) -> None:
+        # Serialize and publish to broker
+        ...
+
+
+class FakeEventPublisher(AbstractEventPublisher):
+    """In-memory — records published events for test assertions."""
+    def __init__(self) -> None:
+        self.published_events: list = []
+
+    async def publish(self, event, subject=None) -> None:
+        self.published_events.append(event)
+```
+
+In tests:
+```python
+async def test_allocate_publishes_allocated_event():
+    uow = FakeUnitOfWork()
+    publisher = FakeEventPublisher()
+    await create_batch("batch-1", "sku-1", 100, None, uow)
+
+    await allocate("order-1", "sku-1", 10, uow, publisher)
+
+    assert len(publisher.published_events) == 1
+    assert publisher.published_events[0].sku == "sku-1"
+```
+
+Same pattern as every other fake — real object, real state, full interface. See resources/testing-events.md for complete TDD cycles covering event publishing and handling.
