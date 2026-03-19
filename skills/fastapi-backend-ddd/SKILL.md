@@ -47,7 +47,7 @@ description: Domain-Driven Design implementation guidelines for async Python bac
 
 ---
 
-## Five Core Tactical DDD Patterns
+## Four Core Tactical DDD Patterns
 
 | Pattern | Role |
 |---|---|
@@ -55,8 +55,6 @@ description: Domain-Driven Design implementation guidelines for async Python bac
 | **Repository** | Hides persistence behind a collection interface. Abstract base + concrete implementation + fake for tests. |
 | **Unit of Work** | Wraps a database transaction, owns repositories, is the only thing that commits. |
 | **Service Layer** | Use case orchestrators. Accept primitives + UoW, call domain, return primitives. |
-| **Event Streaming** | Publishes domain events to a persistent stream for cross-module communication. Abstract publisher + concrete + fake. |
-
 ---
 
 ## Project Structure
