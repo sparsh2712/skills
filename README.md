@@ -7,6 +7,7 @@ A collection of Claude skills for software development.
 | Skill | Description |
 |-------|-------------|
 | [fastapi-backend-ddd](skills/fastapi-backend-ddd/) | Domain-Driven Design implementation guidelines for async Python backends |
+| [tdd-for-ddd](skills/tdd-for-ddd/) | Test-Driven Development workflow for DDD backends — RED-GREEN-REFACTOR with fakes, no mocks |
 
 ## Install
 
@@ -52,6 +53,9 @@ Then install individual skills or the full collection as needed.
 ```
 skills/
   fastapi-backend-ddd/   # DDD for async Python backends
+    SKILL.md
+    resources/
+  tdd-for-ddd/           # TDD workflow for DDD backends
     SKILL.md
     resources/
 template/
