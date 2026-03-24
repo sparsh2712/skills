@@ -12,7 +12,7 @@
     {
       "name": "fastapi-ddd",
       "description": "Domain-Driven Design implementation guidelines for async Python backends",
-      "source": "./skills/fastapi-backend-ddd",
+      "source": "./",
       "strict": false,
       "skills": [
         "./skills/fastapi-backend-ddd"
@@ -21,7 +21,7 @@
     {
       "name": "tdd-for-ddd",
       "description": "Test-Driven Development workflow for DDD backends using fakes, no mocks",
-      "source": "./skills/tdd-for-ddd",
+      "source": "./",
       "strict": false,
       "skills": [
         "./skills/tdd-for-ddd"
